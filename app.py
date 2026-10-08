@@ -182,9 +182,25 @@ def cargar_mms():
     model.eval()
     return proc, model
 
+def leer_wav(audio_bytes: bytes, sr_destino: int = 16000):
+    """Lee el WAV del micrófono y lo pasa a mono 16 kHz (sin librerías extra)."""
+    import wave
+    import numpy as np
+    with wave.open(io.BytesIO(audio_bytes), "rb") as w:
+        canales, ancho, sr = w.getnchannels(), w.getsampwidth(), w.getframerate()
+        crudo = w.readframes(w.getnframes())
+    tipo = {1: np.uint8, 2: np.int16, 4: np.int32}[ancho]
+    x = np.frombuffer(crudo, dtype=tipo).astype(np.float32)
+    x = (x - 128) / 128 if ancho == 1 else x / float(2 ** (8 * ancho - 1))
+    if canales > 1:
+        x = x.reshape(-1, canales).mean(axis=1)
+    if sr != sr_destino and len(x) > 1:
+        n = int(len(x) * sr_destino / sr)
+        x = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x)
+    return x.astype(np.float32)
+
 def transcribir(audio_bytes: bytes, idioma: str) -> str:
-    from faster_whisper.audio import decode_audio
-    audio = decode_audio(io.BytesIO(audio_bytes), sampling_rate=16000)
+    audio = leer_wav(audio_bytes)
 
     if idioma == "Guaraní":          # Meta MMS: soporta guaraní (grn)
         import torch
