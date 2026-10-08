@@ -2,12 +2,15 @@
 import html
 import io
 import random
+import re
 import sqlite3
+import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
+from difflib import SequenceMatcher
 
 import streamlit as st
 
-from evaluador import evaluar
 
 # ------------------------------------------------------------------
 # Configuración
@@ -51,6 +54,97 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; }
 .leyenda span { margin-right: 14px; font-size: .9rem; }
 </style>
 """, unsafe_allow_html=True)
+
+# ------------------------------------------------------------------
+# Lógica de evaluación (compara lo esperado con lo dicho)
+# ------------------------------------------------------------------
+UMBRAL_OK = 0.85      # parecido mínimo para dar la palabra por buena
+UMBRAL_MAL = 0.50     # por debajo de esto, la palabra es "otra cosa"
+
+
+@dataclass
+class Palabra:
+    texto: str      # palabra original (para mostrar)
+    estado: str     # "ok" | "abrev" | "salto" | "mal"
+    dicho: str = "" # lo que se entendió (si aplica)
+
+
+def normalizar(p: str) -> str:
+    """Minúsculas, sin tildes ni signos (tolerante con la transcripción)."""
+    p = unicodedata.normalize("NFD", p.lower())
+    p = "".join(c for c in p if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^\w]", "", p)
+
+
+def _tokens(texto: str):
+    out = []
+    for w in texto.split():
+        n = normalizar(w)
+        if n:
+            out.append((w, n))
+    return out
+
+
+def _ratio(a: str, b: str) -> float:
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _clasificar(orig_n: str, dicho_n: str) -> str:
+    if _ratio(orig_n, dicho_n) >= UMBRAL_OK:
+        return "ok"
+    if 2 <= len(dicho_n) < len(orig_n) and orig_n.startswith(dicho_n):
+        return "abrev"
+    return "mal"
+
+
+def evaluar(original: str, dicho: str):
+    """Devuelve (lista de Palabra, puntaje 0-100, palabras de más)."""
+    o = _tokens(original)
+    s = _tokens(dicho)
+    on, sn = [n for _, n in o], [n for _, n in s]
+    res = [None] * len(o)
+    extras = 0
+
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, on, sn, autojunk=False).get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                res[i1 + k] = Palabra(o[i1 + k][0], "ok", s[j1 + k][0])
+        elif tag == "delete":
+            for i in range(i1, i2):
+                res[i] = Palabra(o[i][0], "salto")
+        elif tag == "insert":
+            extras += j2 - j1
+        else:  # replace
+            lo, ls = i2 - i1, j2 - j1
+            if lo == ls:
+                for k in range(lo):
+                    est = _clasificar(on[i1 + k], sn[j1 + k])
+                    res[i1 + k] = Palabra(o[i1 + k][0], est, s[j1 + k][0])
+            else:
+                ptr = 0
+                for k in range(lo):
+                    i = i1 + k
+                    cand = [(
+                        _ratio(on[i], sn[j1 + c]), c) for c in range(ptr, ls)]
+                    mejor = max(cand) if cand else (0, -1)
+                    if mejor[0] >= UMBRAL_MAL or (
+                            cand and 2 <= len(sn[j1 + mejor[1]]) < len(on[i])
+                            and on[i].startswith(sn[j1 + mejor[1]])):
+                        c = mejor[1]
+                        res[i] = Palabra(o[i][0], _clasificar(on[i], sn[j1 + c]), s[j1 + c][0])
+                        extras += c - ptr
+                        ptr = c + 1
+                    elif (ls - ptr) >= (lo - k):
+                        res[i] = Palabra(o[i][0], "mal", s[j1 + ptr][0])
+                        ptr += 1
+                    else:
+                        res[i] = Palabra(o[i][0], "salto")
+                extras += max(0, ls - ptr)
+
+    total = len(res) or 1
+    puntos = sum({"ok": 1, "abrev": 0.5}.get(p.estado, 0) for p in res)
+    return res, round(puntos / total * 100, 1), extras
+
 
 # ------------------------------------------------------------------
 # Ranking persistente (SQLite)
