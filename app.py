@@ -27,17 +27,54 @@ TEXTOS = {
         "El sol brilla intensamente sobre las colinas por la mañana.",
         "La tecnología avanza rápidamente cambiando nuestra vida diaria.",
         "Aprender un nuevo idioma abre puertas a nuevas oportunidades.",
+        "Mi abuela prepara un delicioso almuerzo todos los domingos.",
+        "Los niños juegan en el patio mientras llueve suavemente.",
+        "Leer un buen libro es viajar sin salir de casa.",
+        "El río cruza la ciudad y refleja las luces de la noche.",
+        "Practicar todos los días es la mejor forma de mejorar.",
+        "En la escuela aprendemos a trabajar en equipo.",
+        "La música nos acompaña en los momentos más alegres.",
+        "Mañana por la tarde visitaremos el museo de historia.",
+        "El perro corre feliz por el parque con su dueño.",
+        "Cuidar el medio ambiente es responsabilidad de todos.",
+        "Quiero ser ingeniero para crear programas que ayuden a las personas.",
+        "Un buen amigo siempre escucha y nunca juzga.",
+        "Cuando amanece, los pájaros cantan en los árboles del jardín.",
     ],
     "Inglés": [
         "The quick brown fox jumps over the lazy dog.",
         "Learning a new language opens up many global opportunities.",
         "Consistency and practice are key to achieving fluency.",
+        "My grandmother makes a delicious lunch every Sunday.",
+        "The children are playing in the yard while it rains softly.",
+        "Reading a good book is like traveling without leaving home.",
+        "The river crosses the city and reflects the lights at night.",
+        "Practicing every day is the best way to improve.",
+        "At school we learn how to work as a team.",
+        "Music keeps us company in our happiest moments.",
+        "Tomorrow afternoon we will visit the history museum.",
+        "The dog runs happily through the park with its owner.",
+        "Taking care of the environment is everyone's responsibility.",
+        "I want to become an engineer and build programs that help people.",
+        "A good friend always listens and never judges.",
+        "At dawn, the birds sing in the trees of the garden.",
     ],
-    # Conviene que un hablante de guaraní revise estas frases.
+    # Frases sencillas en guaraní. Conviene que un hablante las revise.
     "Guaraní": [
-        "Mba'éichapa reko, vy'apavẽ ndéve guarã ko árape.",
-        "Guaraní réra ha'e ñane ñe'ẽ teete ha jahayhu va'erã.",
-        "Oky guasu rire, osẽ kuarahy omhesape pára tape.",
+        "Mba'éichapa reiko?",
+        "Che réra Ana ha aiko Paraguáipe.",
+        "Ñande ñe'ẽ guaraní iporãiterei.",
+        "Ahayhu che ñe'ẽ guaraní.",
+        "Che ru ha che sy oñe'ẽ guaraníme.",
+        "Mitãkuéra oñembosarái yvyra guýpe.",
+        "Pe mitã ohecha peteĩ guyra.",
+        "Aháta eskuélape ko'ẽrõ.",
+        "Ko'ágã aju eskuélagui.",
+        "Kuarahy omimbi ko árape.",
+        "Paraguay ha'e peteĩ tetã iporãva.",
+        "Guaraní ha'e ñane ñe'ẽ teete ha jahayhu va'erã.",
+        "Che aguereko peteĩ mbarakaja pyahu.",
+        "Ko'ẽrõ ajapóta tembiapo ha avy'áta.",
     ],
 }
 
@@ -236,6 +273,19 @@ S = st.session_state
 S.setdefault("vista", "menu")
 S.setdefault("usuario", "")
 S.setdefault("n_audio", 0)
+S.setdefault("vistas", {})
+
+def elegir_frase(idioma):
+    """Elige una frase que todavía no salió; al agotarlas, reinicia sin repetir la última."""
+    vistas = S.vistas.setdefault(idioma, [])
+    pendientes = [f for f in TEXTOS[idioma] if f not in vistas]
+    if not pendientes:
+        ultima = vistas[-1] if vistas else None
+        vistas.clear()
+        pendientes = [f for f in TEXTOS[idioma] if f != ultima] or TEXTOS[idioma]
+    f = random.choice(pendientes)
+    vistas.append(f)
+    return f
 
 # ------------------------------------------------------------------
 # Vistas
@@ -261,7 +311,7 @@ elif S.vista == "practica":
     st.subheader(f"Hola, {S.usuario}")
     idioma = st.selectbox("Idioma", list(TEXTOS))
     if S.get("idioma_previo") != idioma or "frase" not in S:
-        S.frase, S.idioma_previo = random.choice(TEXTOS[idioma]), idioma
+        S.frase, S.idioma_previo = elegir_frase(idioma), idioma
 
     st.caption("Lee en voz alta:")
     st.markdown(f'<div class="frase">{html.escape(S.frase)}</div>', unsafe_allow_html=True)
@@ -288,7 +338,7 @@ elif S.vista == "practica":
             guardar_puntaje(S.usuario, idioma, puntaje)
             ir("resultado")
     if c2.button("Otra frase"):
-        S.frase = random.choice(TEXTOS[idioma]); S.n_audio += 1; st.rerun()
+        S.frase = elegir_frase(idioma); S.n_audio += 1; st.rerun()
     if st.button("← Menú"):
         ir("menu")
 
@@ -309,7 +359,9 @@ elif S.vista == "resultado":
         st.write(r["dicho"] or "(no se escuchó nada)")
 
     c1, c2 = st.columns(2)
-    if c1.button("🔄 Intentar otra vez", type="primary"):
+    if c1.button("🔄 Repetir esta frase"):
         S.n_audio += 1; ir("practica")
-    if c2.button("🏠 Menú"):
+    if c2.button("➡️ Siguiente frase", type="primary"):
+        S.frase = elegir_frase(r["idioma"]); S.n_audio += 1; ir("practica")
+    if st.button("🏠 Menú"):
         S.n_audio += 1; ir("menu")
